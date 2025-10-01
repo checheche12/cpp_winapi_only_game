@@ -16,6 +16,12 @@ double gMoveSpeed = 420.0;  // 좌우 이동 속도
 double gJumpImpulse = 620.0;  // 점프 임펄스
 int gSpeed = 6; // 프레임당 이동 픽셀
 
+/*
+ Logical 하게 윈도우를 그린 뒤, 화면 업데이트 할 때는 현재 사이즈를 받아와서, 현재사이즈 기반으로 재 계산해서 그린다.
+*/
+const int LOGICAL_WIDTH = 1024;
+const int LOGICAL_HEIGHT = 800;
+
 // key 에 해당하는 색을 투명하게 그린다.
 void DrawBmpKeyed(HDC dest, int x, int y, HBITMAP bmp, int w, int h, COLORREF key) {
     HDC src = CreateCompatibleDC(dest);
@@ -40,7 +46,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         return 0;
     }
     case WM_TIMER: {
-        // 고정 dt (SetTimer 16ms 기준)
+        // 고정 dt
         const double dt = 0.016;
 
         // 입력은 속도 기반으로 처리
@@ -68,21 +74,21 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // 좌우
         if (gPX < 0) {
             gPX = 0;
-            gVX = -gVX * gRestitution;
+            gVX = -gVX;
         }
-        else if (gPX + gBW > rc.right) {
-            gPX = rc.right - gBW;
-            gVX = -gVX * gRestitution;
+        else if (gPX + gBW > LOGICAL_WIDTH) {
+            gPX = LOGICAL_WIDTH - gBW;
+            gVX = -gVX;
         }
         // 상하
-        if (gPY + gBH > rc.bottom) {
-            gPY = rc.bottom - gBH;
+        if (gPY + gBH > LOGICAL_HEIGHT) {
+            gPY = LOGICAL_HEIGHT - gBH;
             // 반드시 해당 높이까지 올라가도록 에너지 조절
             gVY = -std::sqrt(2.0 * gGravity * gBounceHeight);
         }
-        else if (gPY + gBH > rc.bottom) {
-            gPY = rc.bottom - gBH;
-            gVY = -gVY * gRestitution;
+        else if (gPY + gBH > LOGICAL_HEIGHT) {
+            gPY = LOGICAL_HEIGHT - gBH;
+            gVY = -gVY;
             // 너무 느리다면...
             if (fabs(gVY) < 60) gVY = 0;
         }
@@ -96,13 +102,39 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     }
     case WM_PAINT: {
         PAINTSTRUCT ps; HDC hdc = BeginPaint(hWnd, &ps);
-        RECT rc; GetClientRect(hWnd, &rc);
+        RECT wr; GetClientRect(hWnd, &wr);
+        int winW = wr.right; int winH = wr.bottom;
+
+        static HBITMAP backBmp = nullptr;
+        static HDC memDC = nullptr;
+
+        if (!memDC) {
+            HDC th = GetDC(hWnd);
+            memDC = CreateCompatibleDC(th);
+            backBmp = CreateCompatibleBitmap(th, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+            SelectObject(memDC, backBmp);
+            ReleaseDC(hWnd, th);
+        }
+
         HBRUSH bg = CreateSolidBrush(RGB(24, 24, 32));
-        FillRect(hdc, &rc, bg); DeleteObject(bg);
+        RECT lr{ 0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT };
+        
+        FillRect(memDC, &lr, bg); DeleteObject(bg);
 
         if (gBmp) {
-            DrawBmpKeyed(hdc, gX, gY, gBmp, gBW, gBH, RGB(255, 0, 255)); // 마젠타 투명
+            DrawBmpKeyed(memDC, (int)gPX, (int)gPY, gBmp, gBW, gBH, RGB(255, 0, 255));
         }
+
+        double sx = (double)winW / LOGICAL_WIDTH;
+        double sy = (double)winH / LOGICAL_HEIGHT;
+
+        double s = (sx < sy ? sx : sy);
+        int vw = (int)(LOGICAL_WIDTH * s);
+        int vh = (int)(LOGICAL_HEIGHT * s);
+        int vx = (winW - vw) / 2;
+        int vy = (winH - vh) / 2;
+
+        StretchBlt(hdc, vx, vy, vw, vh, memDC, 0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT, SRCCOPY);
         EndPaint(hWnd, &ps);
         return 0;
     }
